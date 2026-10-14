@@ -3,52 +3,76 @@ import Sendotp from "../htmlfiles/Sendotp.js";
 import Mailmodel from "../models/Mailmodel.js";
 import UserModel from "../models/UserModel.js";
 import Envs from "../utils/Envs.js";
+import crypto from "crypto";
+import validator from "validator";
 
 
-// send otp for forgot password
+const ALLOWED_ROLES = ["user", "admin", "vendor", "delivery"];
+
+// send otp for forgot password (user / admin / vendor / delivery)
 const sendOTPforgot = async (req, res) => {
-    const { email } = req.body;
+    const { email, role } = req.body;
     try {
-        let user = await UserModel.findOne({ email });
-
-        if (!user) {
-            return res.status(404).json({ success: false, message: "User not found !!!" });
+        if (!email || email.trim() === "") {
+            return res.status(400).json({ success: false, message: "Email is required !!!" });
+        }
+        if (!validator.isEmail(email)) {
+            return res.status(400).json({ success: false, message: "Provide the valid email !!!" });
+        }
+        if (!role || role.trim() === "") {
+            return res.status(400).json({ success: false, message: "Role is required !!!" });
+        }
+        if (!ALLOWED_ROLES.includes(role)) {
+            return res.status(400).json({ success: false, message: "Provide the valid role !!!" });
         }
 
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        // the email must belong to an account with this role
+        const user = await UserModel.findOne({ email: email.trim().toLowerCase(), role });
+        if (!user) {
+            return res.status(404).json({ success: false, message: `No ${role} account found with this email !!!` });
+        }
 
-        const otpexpiresAt = new Date(Date.now() + 1 * 60 * 1000);
+        const otp = crypto.randomInt(100000, 1000000).toString();
 
         user.otp = otp;
-        user.otpexpiresat = otpexpiresAt;
+        user.otpexpiresat = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-        await user.save();
+        await user.save({ validateModifiedOnly: true });
 
-        const result = await Mailmodel.sendMail({
+        // sent to the email of the matched account
+        await Mailmodel.sendMail({
             from: Envs.USER_MAIL,
-            to: email,
-            subject: "Your forget password otp recieved",
-            html: Sendotp(otp),
-        })
+            to: user.email,
+            subject: "Your forgot password OTP",
+            html: Sendotp({ otp }),
+        });
 
-        return res.status(200).json({ success: true, message: "OTP Sent to your mail check inbox !!!" });
+        return res.status(200).json({ success: true, message: "OTP sent to your mail, check your inbox !!!" });
     }
     catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        console.error("sendOTPforgot error:", error.message);
+        return res.status(500).json({ success: false, message: "Unable to send OTP right now. Please try again later." });
     }
-}
+};
 
 
-// verify otp for forgot password 
+// verify otp for forgot password
 const VerifyForgotOTP = async (req, res) => {
-    const { email, otp } = req.body;
+    const { email, role, otp } = req.body;
     try {
-        const user = await UserModel.findOne({ email });
-        if (!user) {
-            return res.status(404).json({ success: false, message: "User not found !!!" });
+        if (!email || !role || !otp) {
+            return res.status(400).json({ success: false, message: "Email, role and OTP are required !!!" });
+        }
+        if (!ALLOWED_ROLES.includes(role)) {
+            return res.status(400).json({ success: false, message: "Provide the valid role !!!" });
         }
 
-        if (user.otp !== otp) {
+        const user = await UserModel.findOne({ email: email.trim().toLowerCase(), role });
+        if (!user) {
+            return res.status(404).json({ success: false, message: `No ${role} account found with this email !!!` });
+        }
+
+        if (!user.otp || user.otp !== String(otp)) {
             return res.status(400).json({ success: false, message: "Invalid OTP !!!" });
         }
 
@@ -58,15 +82,16 @@ const VerifyForgotOTP = async (req, res) => {
 
         user.otp = null;
         user.otpexpiresat = null;
-        await user.save();
+        await user.save({ validateModifiedOnly: true });
 
         const token = await CreateToken(user);
 
         return res.status(200).json({ success: true, message: "OTP verified successfully !!!", token });
     }
     catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        console.error("VerifyForgotOTP error:", error.message);
+        return res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
     }
-}
+};
 
 export { sendOTPforgot, VerifyForgotOTP };
