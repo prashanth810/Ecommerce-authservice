@@ -24,6 +24,23 @@ const UserSchema = new mongoose.Schema({
         type: String,
         default: "",
     },
+    phone: {
+        type: String,
+        unique: true,
+        required: true,
+        trim: true,
+    },
+    date_of_birth: {
+        type: Date,
+        required: true,
+    },
+    gender: {
+        type: String,
+        enum: {
+            values: ["male", "female", "other"],
+            message: "Gender must be male, female or other.",
+        },
+    },
     is_active: {
         type: Boolean,
         default: false,

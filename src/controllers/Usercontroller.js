@@ -213,176 +213,152 @@ const singleprofiledata = async (req, res) => {
     }
 }
 
-// update my profile data 
-const Updatemyprofile = async (req, res) => {
 
-    const { name } = req.body || {};
+// keep your existing imports (UserModel, cloudinary, uploadToCloudinary) as they are
+
+const GENDERS = ["male", "female", "other"]; // must match the enum in your UserModel
+const PHONE_REGEX = /^(?:\+?91|0)?[6-9]\d{9}$/; // Indian mobile: 10 digits starting 6-9 (+91 / 0 prefix allowed)
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+
+const bad = (res, message, status = 400) => res.status(status).json({ success: false, message });
+
+const Updatemyprofile = async (req, res) => {
+    const { name, phone, date_of_birth, gender } = req.body || {};
 
     try {
-
         const user = req.user;
 
         if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found !!!"
-            });
+            return bad(res, "User not found !!!", 404);
         }
 
         const updateprofile = {};
 
+        // ---------- 1. validate EVERYTHING first (so nothing is uploaded if a field is wrong) ----------
 
-        // Update name only if it is provided
+        // name
         if (name !== undefined) {
-
             if (typeof name !== "string" || name.trim() === "") {
-                return res.status(400).json({
-                    success: false,
-                    message: "Name cannot be empty !!!"
-                });
+                return bad(res, "Name cannot be empty !!!");
             }
-
             updateprofile.name = name.trim();
         }
 
-        // IMPORTANT: upload.single() → req.file
+        // phone
+        if (phone !== undefined) {
+            const cleaned = String(phone).replace(/[\s-]/g, "");
+            if (!PHONE_REGEX.test(cleaned)) {
+                return bad(res, "Enter a valid 10 digit phone number !!!");
+            }
+            updateprofile.phone = cleaned.slice(-10); // always store only the 10 digits
+        }
+
+        // date of birth (YYYY-MM-DD)
+        if (date_of_birth !== undefined) {
+            const raw = String(date_of_birth).trim();
+
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+                return bad(res, "Date of birth must be in YYYY-MM-DD format !!!");
+            }
+
+            const dob = new Date(`${raw}T00:00:00.000Z`);
+
+            // rejects impossible dates like 2000-02-31
+            if (Number.isNaN(dob.getTime()) || dob.toISOString().slice(0, 10) !== raw) {
+                return bad(res, "Enter a valid date of birth !!!");
+            }
+
+            const now = new Date();
+            if (dob > now) {
+                return bad(res, "Date of birth cannot be in the future !!!");
+            }
+
+            const oldest = new Date();
+            oldest.setUTCFullYear(now.getUTCFullYear() - 120);
+            if (dob < oldest) {
+                return bad(res, "Enter a valid date of birth !!!");
+            }
+
+            updateprofile.date_of_birth = dob;
+        }
+
+        // gender
+        if (gender !== undefined) {
+            const g = typeof gender === "string" ? gender.trim().toLowerCase() : "";
+            if (!GENDERS.includes(g)) {
+                return bad(res, `Gender must be one of: ${GENDERS.join(", ")} !!!`);
+            }
+            updateprofile.gender = g;
+        }
+
+        // profile picture (upload.single() -> req.file)
         const file = req.file;
 
         if (file) {
-
-            const allowedTypes = [
-                "image/jpeg",
-                "image/png",
-                "image/webp",
-                "image/gif"
-            ];
-
-            const maxSize = 5 * 1024 * 1024;
-
-            // Validate image type
-            if (!allowedTypes.includes(file.mimetype)) {
-
-                return res.status(400).json({
-                    success: false,
-                    message: "Only jpg, jpeg, png, webp, gif formats are allowed!"
-                });
+            if (!ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
+                return bad(res, "Only jpg, jpeg, png, webp, gif formats are allowed!");
             }
-
-            // Validate image size
-            if (file.size > maxSize) {
-
-                return res.status(400).json({
-                    success: false,
-                    message: "Image size must be less than 5MB!"
-                });
+            if (file.size > MAX_IMAGE_SIZE) {
+                return bad(res, "Image size must be less than 5MB!");
             }
-
-            // Upload new image first
-            const secureUrl = await uploadToCloudinary(
-                file.buffer,
-                "users/profile_pic"
-            );
-
-            updateprofile.profile_pic = secureUrl;
-
-            /*
-             Delete old image AFTER successful upload.
-             This is safer.
-            */
-
-            if (user.profile_pic) {
-
-                try {
-
-                    const urlParts = user.profile_pic.split("/");
-
-                    // Example:
-                    // users/profile_pic/abc123.jpg
-
-                    const uploadIndex =
-                        urlParts.indexOf("upload");
-
-                    const pathAfterVersion =
-                        urlParts.slice(uploadIndex + 2);
-
-                    const fullPath =
-                        pathAfterVersion.join("/");
-
-                    const public_id =
-                        fullPath.substring(
-                            0,
-                            fullPath.lastIndexOf(".")
-                        );
-
-
-                    await cloudinary.uploader.destroy(
-                        public_id
-                    );
-
-                } catch (deleteErr) {
-
-                    console.warn(
-                        "Old image deletion failed:",
-                        deleteErr.message
-                    );
-
-                }
-
-            }
-
         }
 
-
-        // Nothing to update
-        if (Object.keys(updateprofile).length === 0) {
-
-            return res.status(400).json({
-                success: false,
-                message: "Please provide a name or profile picture!"
-            });
-
+        // ---------- 2. nothing sent -> error ----------
+        if (Object.keys(updateprofile).length === 0 && !file) {
+            return bad(res, "Please provide at least one field to update: name, phone, date_of_birth, gender or profile picture !!!");
         }
 
+        // ---------- 3. upload the new image (only after all the checks passed) ----------
+        if (file) {
+            updateprofile.profile_pic = await uploadToCloudinary(file.buffer, "users/profile_pic");
+        }
 
-        // Update ONLY logged-in user's profile
-        const updatedUser =
-            await UserModel.findByIdAndUpdate(
+        // ---------- 4. update ONLY the logged-in user's profile ----------
+        const updatedUser = await UserModel.findByIdAndUpdate(
+            user._id,
+            { $set: updateprofile },
+            { new: true, runValidators: true }
+        ).select("-password");
 
-                user._id,
+        if (!updatedUser) {
+            return bad(res, "User not found !!!", 404);
+        }
 
-                {
-                    $set: updateprofile
-                },
+        // ---------- 5. delete the OLD image only after the DB update succeeded ----------
+        if (file && user.profile_pic) {
+            try {
+                // https://res.cloudinary.com/<cloud>/image/upload/v123/users/profile_pic/abc.jpg
+                const urlParts = user.profile_pic.split("/");
+                const uploadIndex = urlParts.indexOf("upload");
+                const fullPath = urlParts.slice(uploadIndex + 2).join("/"); // users/profile_pic/abc.jpg
+                const public_id = fullPath.substring(0, fullPath.lastIndexOf(".")); // users/profile_pic/abc
 
-                {
-                    new: true,
-                    runValidators: true
-                }
-
-            ).select("-password");
-
+                await cloudinary.uploader.destroy(public_id);
+            } catch (deleteErr) {
+                console.warn("Old image deletion failed:", deleteErr.message);
+            }
+        }
 
         return res.status(200).json({
-
             success: true,
-
             message: "Profile updated successfully!",
-
-            user: updatedUser
-
+            user: updatedUser,
         });
-
     }
-
     catch (error) {
+        // phone already used by another account (unique index)
+        if (error?.code === 11000) {
+            return bad(res, "This phone number is already in use !!!", 409);
+        }
+        // schema validation (enum / required / cast errors)
+        if (error?.name === "ValidationError" || error?.name === "CastError") {
+            return bad(res, Object.values(error.errors || {})[0]?.message || "Invalid data !!!");
+        }
 
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
-
+        console.error("Updatemyprofile error:", error.message);
+        return bad(res, "Something went wrong. Please try again.", 500);
     }
-
 };
 
 
@@ -512,99 +488,5 @@ const Logout = async (req, res) => {
     }
 };
 
-
-
-// update password 
-
-
-// forgot password
-// const Forgotpassword = async (req, res) => {
-//     const { email } = req.body;
-//     try {
-//         const user = await UserModel.findOne({ email });
-
-//         if (!user) {
-//             return res.status(404).json({ success: false, message: "User not found !!!" });
-//         }
-
-//         if (!email || email.trim() === "") {
-//             return res.status(400).json({ success: false, message: "Email is required !!!" })
-//         }
-
-//         if (!validator.isEmail(email)) {
-//             return res.status(400).json({ success: false, message: "Invalid email id !!!" })
-//         }
-
-//         // generate otp
-//         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-//         // OTP expires after 5 minutes
-//         const expiresAt = Date.now() + 1 * 60 * 1000;
-
-//         // Store OTP
-//         otpStore.set(email, {
-//             otp,
-//             expiresAt,
-//         });
-
-//         // Send OTP
-//         await sendOTP(email, otp);
-
-//         return res.status(200).json({
-//             success: true,
-//             message: "OTP sent successfully to your email !!!",
-//         });
-
-
-//     }
-//     catch (error) {
-//         return res.status(500).json({ success: false, message: error.message });
-//     }
-// }
-
-// const VerifyForgotOTP = async (req, res) => {
-//     const { email, otp } = req.body;
-
-//     try {
-//         const storedOTP = otpStore.get(email);
-
-//         if (!storedOTP) {
-//             return res.status(400).json({
-//                 success: false,
-//                 message: "OTP expired or not found !!!",
-//             });
-//         }
-
-//         if (Date.now() > storedOTP.expiresAt) {
-//             otpStore.delete(email);
-
-//             return res.status(400).json({
-//                 success: false,
-//                 message: "OTP has expired !!!",
-//             });
-//         }
-
-//         if (storedOTP.otp !== otp) {
-//             return res.status(400).json({
-//                 success: false,
-//                 message: "Invalid OTP !!!",
-//             });
-//         }
-
-//         // OTP is correct
-//         otpStore.delete(email);
-
-//         return res.status(200).json({
-//             success: true,
-//             message: "OTP verified successfully !!!",
-//         });
-
-//     } catch (error) {
-//         return res.status(500).json({
-//             success: false,
-//             message: error.message,
-//         });
-//     }
-// };
 
 export { Regiterapi, Loginapi, myprofile, singleprofiledata, Updatemyprofile, Deleteaccount, DeactivateInactiveUsers, Logout };
