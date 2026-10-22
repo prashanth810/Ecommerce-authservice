@@ -27,12 +27,11 @@ const UserSchema = new mongoose.Schema({
     phone: {
         type: String,
         unique: true,
-        required: true,
+        sparse: true,
         trim: true,
     },
     date_of_birth: {
         type: Date,
-        required: true,
     },
     gender: {
         type: String,
@@ -55,12 +54,16 @@ const UserSchema = new mongoose.Schema({
     },
     store_name: {
         type: String,
-        required: true,
+        required: function () {
+            return this.role === "vendor";
+        },
         trim: true,
     },
     Bussiness_category: {
         type: String,
-        required: true,
+        required: function () {
+            return this.role === "vendor";
+        },
         trim: true,
     },
 
