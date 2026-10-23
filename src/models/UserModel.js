@@ -52,6 +52,17 @@ const UserSchema = new mongoose.Schema({
         },
         default: "user",
     },
+    // forgot-password OTP (without these, mongoose strict mode silently drops otp on save)
+    otp: {
+        type: String,
+        default: null,
+        select: false,
+    },
+    otpexpiresat: {
+        type: Date,
+        default: null,
+        select: false,
+    },
     store_name: {
         type: String,
         required: function () {
