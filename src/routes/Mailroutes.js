@@ -7,8 +7,17 @@ const Mailrouter = express.Router();
 
 
 // send otp for forgot password 
-Mailrouter.post("/send-otp", sendOTPforgot);
-Mailrouter.post("/verify-otp", VerifyForgotOTP);
+Mailrouter.post("/send-otp", Ratelimit(
+    60 * 1000,      // 1 minute window
+    5,              // 5 attempts
+    5 * 60 * 1000   // 5 minute cooldown
+), sendOTPforgot);
+
+Mailrouter.post("/verify-otp", Ratelimit(
+    60 * 1000,      // 1 minute window
+    5,              // 5 attempts
+    5 * 60 * 1000   // 5 minute cooldown
+), VerifyForgotOTP);
 
 // change password using the token from verify-otp
 Mailrouter.patch("/change-password", Ratelimit(
