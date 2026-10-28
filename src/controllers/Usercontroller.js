@@ -362,66 +362,6 @@ const Updatemyprofile = async (req, res) => {
 };
 
 
-// delete my profile 
-const Deleteaccount = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const user = await UserModel.findById(id);
-
-        if (!user) {
-            return res.status(404).json({ success: false, message: "User Not found !!!" });
-        }
-
-        // Delete profile picture from Cloudinary
-        if (user.profile_pic) {
-
-            try {
-
-                // Get public_id from Cloudinary URL
-                const urlParts = user.profile_pic.split("/");
-
-                const uploadIndex = urlParts.indexOf("upload");
-
-                // Remove version part
-                const pathAfterVersion = urlParts.slice(uploadIndex + 2);
-
-                // Join remaining path
-                const fullPath = pathAfterVersion.join("/");
-
-                // Remove extension
-                const public_id = fullPath.substring(
-                    0,
-                    fullPath.lastIndexOf(".")
-                );
-
-                await cloudinary.uploader.destroy(
-                    public_id
-                );
-
-            } catch (deleteError) {
-
-                console.warn(
-                    "Cloudinary image deletion failed:",
-                    deleteError.message
-                );
-
-            }
-
-        }
-
-
-        // Delete user from MongoDB
-        await UserModel.findByIdAndDelete(id);
-
-        return res.status(200).json({ success: true, message: "Acccount deleted success !!!" });
-
-
-    }
-    catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
-    }
-}
-
 // in active account
 const DeactivateInactiveUsers = async (req, res) => {
     try {
@@ -488,5 +428,109 @@ const Logout = async (req, res) => {
     }
 };
 
+// update password
+const updatepassword = async (req, res) => {
+    const { currentPassword, password } = req.body;
+    try {
+        const userId = req.user.id;
+        if (!currentPassword || currentPassword.trim() === "") {
+            return res.status(400).json({ success: false, message: "Current password is required !!!" });
+        }
 
-export { Regiterapi, Loginapi, myprofile, singleprofiledata, Updatemyprofile, Deleteaccount, DeactivateInactiveUsers, Logout };
+        if (!password || password.trim() === "") {
+            return res.status(400).json({ success: false, message: "New password is required !!!" });
+        }
+
+        if (!validator.isStrongPassword(password, {
+            minLength: 8,
+            minLowercase: 1,
+            minUppercase: 1,
+            minSymbols: 1,
+            minNumbers: 1,
+        })) {
+            return res.status(400).json({ success: false, message: "Please provide stong password !!!" });
+        }
+
+        if (currentPassword === password) {
+            return res.status(400).json({
+                success: false,
+                message: "New password must be different from current password !!!"
+            });
+        }
+
+        const user = await UserModel.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found !!!" });
+        }
+
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+
+        if (!isMatch) {
+            return res.status(400).json({ success: false, message: "Current password is incorrect !!!" });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Password changed successfully !!!"
+        });
+
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}
+
+
+// delete my profile 
+const Deleteaccount = async (req, res) => {
+    const { id } = req.params;
+    const { confirm } = req.body || {};
+
+    try {
+        // only the owner (or an admin) can delete this account
+        if (req.user.id !== id && req.user.role !== "admin") {
+            return res.status(403).json({ success: false, message: "Not allowed to delete this account !!!" });
+        }
+
+        // must be exactly "DELETE"
+        if (confirm !== "DELETE") {
+            return res.status(400).json({
+                success: false,
+                message: 'Type "DELETE" to confirm account deletion !!!',
+            });
+        }
+
+        const user = await UserModel.findById(id);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found !!!" });
+        }
+
+        // Delete profile picture from Cloudinary
+        if (user.profile_pic) {
+            try {
+                const urlParts = user.profile_pic.split("/");
+                const uploadIndex = urlParts.indexOf("upload");
+                const fullPath = urlParts.slice(uploadIndex + 2).join("/");
+                const public_id = fullPath.substring(0, fullPath.lastIndexOf("."));
+
+                await cloudinary.uploader.destroy(public_id);
+            } catch (deleteError) {
+                console.warn("Cloudinary image deletion failed:", deleteError.message);
+            }
+        }
+
+        await UserModel.findByIdAndDelete(id);
+
+        return res.status(200).json({ success: true, message: "Account deleted successfully !!!" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export { Regiterapi, Loginapi, myprofile, singleprofiledata, Updatemyprofile, Deleteaccount, DeactivateInactiveUsers, Logout, updatepassword };

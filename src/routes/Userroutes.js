@@ -1,7 +1,7 @@
 import express from "express";
 import { upload } from "../config/Cloudinary.js";
 import Authmiddleware from "../middlewares/Authmiddleware.js";
-import { DeactivateInactiveUsers, Deleteaccount, Loginapi, myprofile, Regiterapi, singleprofiledata, Updatemyprofile, Logout } from "../controllers/Usercontroller.js";
+import { DeactivateInactiveUsers, Deleteaccount, Loginapi, myprofile, Regiterapi, singleprofiledata, Updatemyprofile, Logout, updatepassword } from "../controllers/Usercontroller.js";
 import Ratelimit from "../middlewares/Ratelimit.js";
 
 const Authrouter = express.Router();
@@ -44,12 +44,6 @@ Authrouter.put("/profile/:id", Ratelimit(
 ), Authmiddleware, upload.single("profile_pic"), Updatemyprofile)
 
 
-// delete account delete
-Authrouter.delete("/account/:id", Ratelimit(
-    60 * 1000,      // 1 minute window
-    2,              // 5 attempts
-    5 * 60 * 1000   // 5 minute cooldown
-), Authmiddleware, Deleteaccount);
 
 
 // in active account with patch after 3 months
@@ -61,5 +55,19 @@ Authrouter.patch("/inactive-users", Ratelimit(
 
 Authrouter.post("/logout", Authmiddleware, Logout);
 
+
+// change password
+Authrouter.post("/reset-password", Ratelimit(
+    60 * 1000,
+    5,
+    5 * 60 * 1000,
+), Authmiddleware, updatepassword);
+
+// delete account delete
+Authrouter.delete("/account/:id", Ratelimit(
+    60 * 1000,      // 1 minute window
+    2,              // 5 attempts
+    5 * 60 * 1000   // 5 minute cooldown
+), Authmiddleware, Deleteaccount);
 
 export default Authrouter;
