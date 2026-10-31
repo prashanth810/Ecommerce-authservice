@@ -7,6 +7,7 @@ import Authrouter from "./routes/Userroutes.js";
 import Mailrouter from "./routes/Mailroutes.js";
 import Vendorroute from "./routes/Vendorroutes.js";
 import startGrpcServer from "./grpc/grpcServer.js";
+import healthRouter from "./health/health.routes.js";
 
 const app = express();
 
@@ -43,8 +44,7 @@ app.use("/api/auth/mail", Mailrouter);
 // vendor routes
 app.use("/api/auth/v1", Vendorroute);
 
-// grpc routes 
-
+app.use("/health", healthRouter); // HEALTH (before all other routes)
 
 ConnectionDB().then(() => {
     app.listen(PORT, () => {

@@ -46,7 +46,7 @@ const Regiterapi = async (req, res) => {
             return res.status(400).json({ success: false, message: "Role is required !!!" });
         }
 
-        if (!['user', 'admin', 'vendor', 'delivery'].includes(role)) {
+        if (!['user', 'admin', 'vendor'].includes(role)) {
             return res.status(400).json({ success: false, message: "provide the valid role !!!" });
         }
 
